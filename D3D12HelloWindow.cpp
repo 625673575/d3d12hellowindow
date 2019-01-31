@@ -21,7 +21,7 @@
 
 D3D12HelloWindow::D3D12HelloWindow(UINT width, UINT height, std::wstring name) :
 	DXSample(width, height, name),
-	m_fenceValues{0,0},
+	m_fenceValues{ 0,0 },
 	m_frameIndex(0),
 	m_pCbvDataBegin(nullptr),
 	m_rtvDescriptorSize(0),
@@ -140,6 +140,7 @@ void D3D12HelloWindow::LoadPipeline()
 
 			ThrowIfFailed(m_device->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_DIRECT, IID_PPV_ARGS(&m_commandAllocators[n])));
 		}
+		ThrowIfFailed(m_device->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_BUNDLE, IID_PPV_ARGS(&m_bundleAllocator)));
 	}
 
 	// 创建RootSignature,这个描述了shader的各种资源srv,cbv,uav的register位置
@@ -153,7 +154,7 @@ void D3D12HelloWindow::LoadPipeline()
 		}
 
 		CD3DX12_DESCRIPTOR_RANGE1 rangesTex[1];
-		rangesTex[0].Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 2, 0, 0, D3D12_DESCRIPTOR_RANGE_FLAG_DATA_STATIC);//这里用到了t0和t1分别传入原贴图和distortion map,通常尽量保持连续
+		rangesTex[0].Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 2, 0, 0, D3D12_DESCRIPTOR_RANGE_FLAG_NONE);//这里用到了t0和t1分别传入原贴图和distortion map,通常尽量保持连续
 
 		CD3DX12_ROOT_PARAMETER1 rootParameters[3];//Root Parameter的下标很重要,在后面SetGraphicsRootDescriptorTable要传入对应的0,SetGraphicsRootConstantBufferView要传入1,2
 		//创建DescriptorTable存储多个cbv
@@ -279,7 +280,7 @@ void D3D12HelloWindow::LoadPipeline()
 		resourceDesc.Width = VertexDataSize;
 		ThrowIfFailed(m_device->CreateCommittedResource(
 			&heapProps, D3D12_HEAP_FLAG_NONE, &resourceDesc,
-			D3D12_RESOURCE_STATE_GENERIC_READ, nullptr, IID_PPV_ARGS(&m_vertexBuffer)));//创建读取的Buffer
+			D3D12_RESOURCE_STATE_GENERIC_READ | D3D12_RESOURCE_STATE_VERTEX_AND_CONSTANT_BUFFER, nullptr, IID_PPV_ARGS(&m_vertexBuffer)));//创建读取的Buffer
 
 		UINT8* pVertexDataBegin = nullptr;
 		ThrowIfFailed(m_vertexBuffer->Map(0, nullptr, reinterpret_cast<void**>(&pVertexDataBegin)));//map映射到CPU可操作的位置
@@ -298,7 +299,7 @@ void D3D12HelloWindow::LoadPipeline()
 
 		ThrowIfFailed(m_device->CreateCommittedResource(
 			&heapProps, D3D12_HEAP_FLAG_NONE, &resourceDesc,
-			D3D12_RESOURCE_STATE_GENERIC_READ, nullptr,
+			D3D12_RESOURCE_STATE_GENERIC_READ | D3D12_RESOURCE_STATE_INDEX_BUFFER, nullptr,
 			IID_PPV_ARGS(&m_indexBuffer)));
 
 		UINT8* pIndexDataBegin = nullptr;
@@ -321,7 +322,7 @@ void D3D12HelloWindow::LoadPipeline()
 		cbvSrvHeapDesc.NumDescriptors = 10;                            //
 		cbvSrvHeapDesc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
 		cbvSrvHeapDesc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
-		ThrowIfFailed(m_device->CreateDescriptorHeap(&cbvSrvHeapDesc, IID_PPV_ARGS(&m_leftCbvSrvHeap)));
+		ThrowIfFailed(m_device->CreateDescriptorHeap(&cbvSrvHeapDesc, IID_PPV_ARGS(&m_cbvSrvHeap)));
 		m_cbvSrvDescriptorSize = m_device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);//获取增量大小,用于后面handle的获取
 	}
 	// Dx12中的ConstantBuffer可以一次包含多个变量,然后通过获取handle进行设置到指定的slot
@@ -338,15 +339,12 @@ void D3D12HelloWindow::LoadPipeline()
 
 		CD3DX12_RANGE readRange(0, 0);        // We do not intend to read from this resource on the CPU.
 		ThrowIfFailed(m_constantBuffer->Map(0, &readRange, reinterpret_cast<void**>(&m_pCbvDataBegin)));
-		
+
 		CBChromatic chromeData;
 		chromeData.GDist = 1.0025f;
 		chromeData.BDist = 1.014001f;
 		memcpy(m_pCbvDataBegin, &chromeData, sizeof(chromeData));//固定不变的数据,所以在这里直接赋值
-
-		//memcpy(m_pCbvDataBegin + m_constantBufferPerSize , &m_timewarpData, sizeof(m_timewarpData));
-		//memcpy(m_pCbvDataBegin + m_constantBufferPerSize*2 , &m_timewarpData, sizeof(m_timewarpData));
-
+		m_constantBuffer->Unmap(0,&readRange);
 	}
 	// Note: ComPtr's are CPU objects but this resource needs to stay in scope until
 	// the command list that references it has finished executing on the GPU.
@@ -373,14 +371,14 @@ void D3D12HelloWindow::LoadPipeline()
 			&textureDesc,
 			D3D12_RESOURCE_STATE_COPY_DEST,
 			nullptr,
-			IID_PPV_ARGS(&m_leftTexture))); 
+			IID_PPV_ARGS(&m_leftTexture)));
 		ThrowIfFailed(m_device->CreateCommittedResource(
-				&CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_DEFAULT),
-				D3D12_HEAP_FLAG_NONE,
-				&textureDesc,
-				D3D12_RESOURCE_STATE_COPY_DEST,
-				nullptr,
-				IID_PPV_ARGS(&m_rightTexture)));
+			&CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_DEFAULT),
+			D3D12_HEAP_FLAG_NONE,
+			&textureDesc,
+			D3D12_RESOURCE_STATE_COPY_DEST,
+			nullptr,
+			IID_PPV_ARGS(&m_rightTexture)));
 
 		const UINT64 uploadBufferSize = GetRequiredIntermediateSize(m_leftTexture.Get(), 0, 1);
 
@@ -402,7 +400,7 @@ void D3D12HelloWindow::LoadPipeline()
 			nullptr,
 			IID_PPV_ARGS(&textureUploadHeap[1])));
 
-		std::vector<UINT8> texture = GenerateTextureData(2048, 2048,4,4);
+		std::vector<UINT8> texture = GenerateTextureData(2048, 2048, 4, 4);
 		D3D12_SUBRESOURCE_DATA textureData = {};
 		textureData.pData = &texture[0];
 		textureData.RowPitch = 2048 * 4;
@@ -416,7 +414,7 @@ void D3D12HelloWindow::LoadPipeline()
 		srvDesc.Format = textureDesc.Format;
 		srvDesc.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
 		srvDesc.Texture2D.MipLevels = 1;
-		m_device->CreateShaderResourceView(m_leftTexture.Get(), &srvDesc, m_leftCbvSrvHeap->GetCPUDescriptorHandleForHeapStart());
+		m_device->CreateShaderResourceView(m_leftTexture.Get(), &srvDesc, m_cbvSrvHeap->GetCPUDescriptorHandleForHeapStart());
 
 		std::vector<UINT8> texture2 = GenerateTextureData(2048, 2048, 12, 8);
 		D3D12_SUBRESOURCE_DATA textureData2 = {};
@@ -426,9 +424,42 @@ void D3D12HelloWindow::LoadPipeline()
 		UpdateSubresources(m_commandList.Get(), m_rightTexture.Get(), textureUploadHeap[1].Get(), 0, 0, 1, &textureData2);
 		m_commandList->ResourceBarrier(1, &CD3DX12_RESOURCE_BARRIER::Transition(m_rightTexture.Get(), D3D12_RESOURCE_STATE_COPY_DEST, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE));
 
-		CD3DX12_CPU_DESCRIPTOR_HANDLE srvHandle2(m_leftCbvSrvHeap->GetCPUDescriptorHandleForHeapStart(), 2, m_cbvSrvDescriptorSize);//偏移为2
+		CD3DX12_CPU_DESCRIPTOR_HANDLE srvHandle2(m_cbvSrvHeap->GetCPUDescriptorHandleForHeapStart(), 2, m_cbvSrvDescriptorSize);//偏移为2
 		m_device->CreateShaderResourceView(m_rightTexture.Get(), &srvDesc, srvHandle2);
 	}
+
+	// Create and record the bundle.
+	{
+		//root signature 和 descriptor 和heaps 还是需要在每个bundle进行设置,且在CommandList里面也要设置
+		ThrowIfFailed(m_device->CreateCommandList(0, D3D12_COMMAND_LIST_TYPE_BUNDLE, m_bundleAllocator.Get(), m_pipelineState.Get(), IID_PPV_ARGS(&m_bundleInit)));
+		m_bundleInit->SetGraphicsRootSignature(m_rootSignature.Get());
+		ID3D12DescriptorHeap* ppHeaps[] = { m_cbvSrvHeap.Get() };
+		m_bundleInit->SetDescriptorHeaps(_countof(ppHeaps), ppHeaps);
+		m_bundleInit->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+		m_bundleInit->IASetIndexBuffer(&m_indexBufferView);
+		m_bundleInit->IASetVertexBuffers(0, 1, &m_vertexBufferView);
+		m_bundleInit->SetGraphicsRootConstantBufferView(CB_CHROMATIC_INDEX, m_constantBuffer->GetGPUVirtualAddress());//root parameter slot 2 is CBChromatic.
+		ThrowIfFailed(m_bundleInit->Close());
+
+		ThrowIfFailed(m_device->CreateCommandList(0, D3D12_COMMAND_LIST_TYPE_BUNDLE, m_bundleAllocator.Get(), m_pipelineState.Get(), IID_PPV_ARGS(&m_bundleDrawer[0]))); 		
+		CD3DX12_GPU_DESCRIPTOR_HANDLE srvHandle(m_cbvSrvHeap->GetGPUDescriptorHandleForHeapStart(), 0, m_cbvSrvDescriptorSize);
+		m_bundleDrawer[0]->SetDescriptorHeaps(_countof(ppHeaps), ppHeaps);
+		m_bundleDrawer[0]->SetGraphicsRootSignature(m_rootSignature.Get());
+		m_bundleDrawer[0]->SetGraphicsRootDescriptorTable(0, srvHandle);
+		m_bundleDrawer[0]->SetGraphicsRootConstantBufferView(CB_TIMEWARP_INDEX, m_constantBuffer->GetGPUVirtualAddress() + m_constantBufferPerSize);//root parameter slot 1 is CBTimewarp.
+		m_bundleDrawer[0]->DrawIndexedInstanced(m_indicies_num, 1, 0, 0, 0);
+		ThrowIfFailed(m_bundleDrawer[0]->Close());
+
+		ThrowIfFailed(m_device->CreateCommandList(0, D3D12_COMMAND_LIST_TYPE_BUNDLE, m_bundleAllocator.Get(), m_pipelineState.Get(), IID_PPV_ARGS(&m_bundleDrawer[1])));
+		CD3DX12_GPU_DESCRIPTOR_HANDLE srvHandle2(m_cbvSrvHeap->GetGPUDescriptorHandleForHeapStart(), 2, m_cbvSrvDescriptorSize);//t0-t1,所以偏移是2
+		m_bundleDrawer[1]->SetDescriptorHeaps(_countof(ppHeaps), ppHeaps);
+		m_bundleDrawer[1]->SetGraphicsRootSignature(m_rootSignature.Get());
+		m_bundleDrawer[1]->SetGraphicsRootDescriptorTable(0, srvHandle2);
+		m_bundleDrawer[1]->SetGraphicsRootConstantBufferView(CB_TIMEWARP_INDEX, m_constantBuffer->GetGPUVirtualAddress() + m_constantBufferPerSize * 2);
+		m_bundleDrawer[1]->DrawIndexedInstanced(m_indicies_num, 1, 0, 0, 0);
+		ThrowIfFailed(m_bundleDrawer[1]->Close());
+	}
+
 	// Command lists are created in the recording state, but there is nothing
 	// to record yet. The main loop expects it to be closed, so close it now.
 	ThrowIfFailed(m_commandList->Close());
@@ -510,15 +541,15 @@ void D3D12HelloWindow::GenerateDistortionTexture()
 		srvDesc.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
 		srvDesc.Texture2D.MipLevels = 1;
 
-		CD3DX12_CPU_DESCRIPTOR_HANDLE srvHandle(m_leftCbvSrvHeap->GetCPUDescriptorHandleForHeapStart(),1,m_cbvSrvDescriptorSize);//偏移为1,0是主贴图,1是DistortionMap因为在RangeTeX中的位置是1
+		CD3DX12_CPU_DESCRIPTOR_HANDLE srvHandle(m_cbvSrvHeap->GetCPUDescriptorHandleForHeapStart(), 1, m_cbvSrvDescriptorSize);//偏移为1,0是主贴图,1是DistortionMap因为在RangeTeX中的位置是1
 		m_device->CreateShaderResourceView(m_intermediateRenderTarget.Get(), &srvDesc, srvHandle);
-		CD3DX12_CPU_DESCRIPTOR_HANDLE srvHandle2(m_leftCbvSrvHeap->GetCPUDescriptorHandleForHeapStart(), 3, m_cbvSrvDescriptorSize);//偏移为1,0是主贴图,1是DistortionMap因为在RangeTeX中的位置是1
+		CD3DX12_CPU_DESCRIPTOR_HANDLE srvHandle2(m_cbvSrvHeap->GetCPUDescriptorHandleForHeapStart(), 3, m_cbvSrvDescriptorSize);//偏移为3,因为左眼的t0-t1占了两个所以需要加2
 		m_device->CreateShaderResourceView(m_intermediateRenderTarget.Get(), &srvDesc, srvHandle2);
 	}
 	// Create root signature
 	{
 		CD3DX12_DESCRIPTOR_RANGE1 rangesTex[1];
-		rangesTex[0].Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 1, 0, 0, D3D12_DESCRIPTOR_RANGE_FLAG_DATA_STATIC);
+		rangesTex[0].Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 1, 0, 0, D3D12_DESCRIPTOR_RANGE_FLAG_NONE);
 
 		CD3DX12_ROOT_PARAMETER1 rootParameters[2];
 		rootParameters[0].InitAsConstantBufferView(3, 0, D3D12_ROOT_DESCRIPTOR_FLAG_NONE, D3D12_SHADER_VISIBILITY_VERTEX);   //CBTimewarp 在c3
@@ -724,7 +755,7 @@ void D3D12HelloWindow::GenerateDistortionTexture()
 		// Set necessary state.
 		m_commandList->SetGraphicsRootSignature(m_distortionSignature.Get());
 
-		ID3D12DescriptorHeap* ppHeaps[] = { m_leftCbvSrvHeap.Get() };
+		ID3D12DescriptorHeap* ppHeaps[] = { m_cbvSrvHeap.Get() };
 		m_commandList->SetDescriptorHeaps(_countof(ppHeaps), ppHeaps);
 
 		m_commandList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
@@ -778,6 +809,32 @@ glm::mat4 CalculateWarpMatrix(glm::fquat& origPose, glm::fquat& latestPose)
 void D3D12HelloWindow::OnUpdate()
 {
 	cur_quat = GetHMDQuat();
+
+	{//Update Timewarp CB data
+#define DG2RAD(x) x*DirectX::XM_PI / 180
+		glm::vec3 scale{ 1.0f,1.0f,1.0f };
+		glm::mat4 eyeProjectionMatrix = glm::rotate(CalculateProjectionMatrix(EyeType::LeftEye), DG2RAD(-90), glm::vec3(0.0f, .0f, 1.0f));
+
+		glm::mat4 leftWarpMatrix = glm::mat4(1.0f);
+		glm::mat4 leftTextureMatrix = glm::mat4(1.0f);
+		glm::mat4 skewSquashMatrix = glm::mat4(1.0f);
+
+		leftWarpMatrix = CalculateWarpMatrix(last_quat, cur_quat);
+		leftTextureMatrix = leftWarpMatrix * eyeProjectionMatrix;
+		m_timewarpData.textureMtx = leftTextureMatrix;
+		m_timewarpData.skewSquashMatrix = glm::mat4(1);
+		memcpy(m_pCbvDataBegin + m_constantBufferPerSize * 1, &m_timewarpData, sizeof(m_timewarpData));
+
+		eyeProjectionMatrix = glm::rotate(CalculateProjectionMatrix(EyeType::RightEye), DG2RAD(-90), glm::vec3(0.0f, .0f, 1.0f));
+		glm::mat4 rightWarpMatrix = glm::mat4(1.0f);
+		glm::mat4 rightTextureMatrix = glm::mat4(1.0f);
+		//glm::mat4 skewSquashMatrix = glm::mat4(1.0f);
+		rightWarpMatrix = CalculateWarpMatrix(last_quat, cur_quat);
+		rightTextureMatrix = rightWarpMatrix * eyeProjectionMatrix;
+		m_timewarpData.textureMtx = rightTextureMatrix;
+		m_timewarpData.skewSquashMatrix = glm::mat4(1);
+		memcpy(m_pCbvDataBegin + m_constantBufferPerSize * 2, &m_timewarpData, sizeof(m_timewarpData));
+	}
 }
 
 // Render the scene.
@@ -809,92 +866,31 @@ void D3D12HelloWindow::OnDestroy()
 void D3D12HelloWindow::PopulateCommandList()
 {
 	ThrowIfFailed(m_commandAllocators[m_frameIndex]->Reset());
-
-	// Reset command list to recording state
 	ThrowIfFailed(m_commandList->Reset(m_commandAllocators[m_frameIndex].Get(), m_pipelineState.Get()));
-	// Set root signature, view, and rect
-	m_commandList->SetGraphicsRootSignature(m_rootSignature.Get());
 
-	ID3D12DescriptorHeap* ppHeaps[] = {m_leftCbvSrvHeap.Get() };
-	m_commandList->SetDescriptorHeaps(_countof(ppHeaps), ppHeaps);
+	m_commandList->RSSetViewports(1, &m_viewport);//这两个不能再Bundle里面进行设置,Bundle仅能执行修改局部的命令
+	m_commandList->RSSetScissorRects(1, &m_scissorRect);
+	static ID3D12DescriptorHeap* ppHeaps[] = { m_cbvSrvHeap.Get() };
+	m_commandList->SetDescriptorHeaps(_countof(ppHeaps), ppHeaps);//Descriptor Heaps 必须要进行设置
 
-	CD3DX12_GPU_DESCRIPTOR_HANDLE srvHandle(m_leftCbvSrvHeap->GetGPUDescriptorHandleForHeapStart(), 0, m_cbvSrvDescriptorSize);
-	m_commandList->SetGraphicsRootDescriptorTable(0, srvHandle);
+	m_commandList->ExecuteBundle(m_bundleInit.Get());
 
 	// Set render target
 	auto rtvHandle = m_rtvDescriptorHeap->GetCPUDescriptorHandleForHeapStart();
-	rtvHandle.ptr += m_frameIndex * m_device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_RTV);
+	rtvHandle.ptr += m_frameIndex * m_rtvDescriptorSize;
 	m_commandList->OMSetRenderTargets(1, &rtvHandle, TRUE, nullptr);
 
-	m_commandList->RSSetViewports(1, &m_viewport);
-	m_commandList->RSSetScissorRects(1, &m_scissorRect);
-
 	// Transition to render
-	{
-		D3D12_RESOURCE_BARRIER resourceBarrier{ };
-		resourceBarrier.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
-		resourceBarrier.Flags = D3D12_RESOURCE_BARRIER_FLAG_NONE;
-		resourceBarrier.Transition.pResource = m_renderTargets[m_frameIndex].Get();
-		resourceBarrier.Transition.StateBefore = D3D12_RESOURCE_STATE_PRESENT;
-		resourceBarrier.Transition.StateAfter = D3D12_RESOURCE_STATE_RENDER_TARGET;
-		resourceBarrier.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
+	m_commandList->ResourceBarrier(1, &CD3DX12_RESOURCE_BARRIER::Transition(m_renderTargets[m_frameIndex].Get(), D3D12_RESOURCE_STATE_PRESENT, D3D12_RESOURCE_STATE_RENDER_TARGET));
 
-		m_commandList->ResourceBarrier(1, &resourceBarrier);
-	}
+	m_commandList->ClearRenderTargetView(rtvHandle,DirectX::Colors::Cyan , 0, nullptr);
 
-	const FLOAT clearColor[] = { 0.0f, 0.25f, 1, 1.0f };
-	m_commandList->ClearRenderTargetView(rtvHandle, clearColor, 0, nullptr);
-
-	m_commandList->SetGraphicsRootConstantBufferView(CB_CHROMATIC_INDEX, m_constantBuffer->GetGPUVirtualAddress());//root parameter slot 2 is CBChromatic.
-
-	glm::vec3 scale{ 1.0f,1.0f,1.0f };
-	glm::mat4 eyeProjectionMatrix = glm::scale(CalculateProjectionMatrix(EyeType::LeftEye), scale);
-
-	glm::mat4 leftWarpMatrix = glm::mat4(1.0f);
-	glm::mat4 leftTextureMatrix = glm::mat4(1.0f);
-	glm::mat4 skewSquashMatrix = glm::mat4(1.0f);
-
-	leftWarpMatrix = CalculateWarpMatrix(last_quat, cur_quat);
-	leftTextureMatrix = leftWarpMatrix * eyeProjectionMatrix;
-	m_timewarpData.textureMtx = leftTextureMatrix;
-	m_timewarpData.skewSquashMatrix = glm::mat4(1);
-	memcpy(m_pCbvDataBegin + m_constantBufferPerSize * 1, &m_timewarpData, sizeof(m_timewarpData));
-	// Issue draw command
-	m_commandList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
-	m_commandList->IASetIndexBuffer(&m_indexBufferView);
-	m_commandList->IASetVertexBuffers(0, 1, &m_vertexBufferView);
-	m_commandList->SetGraphicsRootConstantBufferView(CB_TIMEWARP_INDEX, m_constantBuffer->GetGPUVirtualAddress() + m_constantBufferPerSize);//root parameter slot 1 is CBTimewarp.
-	m_commandList->DrawIndexedInstanced(m_indicies_num, 1, 0, 0, 0);
-
-	 srvHandle = CD3DX12_GPU_DESCRIPTOR_HANDLE(m_leftCbvSrvHeap->GetGPUDescriptorHandleForHeapStart(), 2, m_cbvSrvDescriptorSize);//t0-t1,所以偏移是2
-	m_commandList->SetGraphicsRootDescriptorTable(0, srvHandle);
-
-	eyeProjectionMatrix = glm::scale(CalculateProjectionMatrix(EyeType::RightEye), scale);
-	glm::mat4 rightWarpMatrix = glm::mat4(1.0f);
-	glm::mat4 rightTextureMatrix = glm::mat4(1.0f);
-	//glm::mat4 skewSquashMatrix = glm::mat4(1.0f);
-	rightWarpMatrix = CalculateWarpMatrix(last_quat, cur_quat);
-	rightTextureMatrix = rightWarpMatrix * eyeProjectionMatrix;
-	m_timewarpData.textureMtx = rightTextureMatrix;
-	m_timewarpData.skewSquashMatrix = glm::mat4(1);
-	memcpy(m_pCbvDataBegin + +m_constantBufferPerSize * 2, &m_timewarpData, sizeof(m_timewarpData));
-	m_commandList->SetGraphicsRootConstantBufferView(CB_TIMEWARP_INDEX, m_constantBuffer->GetGPUVirtualAddress() + m_constantBufferPerSize * 2);
-	m_commandList->DrawIndexedInstanced(m_indicies_num, 1, 0, 0, 0);
+	m_commandList->ExecuteBundle(m_bundleDrawer[0].Get());
+	m_commandList->ExecuteBundle(m_bundleDrawer[1].Get());
 
 	// Transition to present
-	{
-		D3D12_RESOURCE_BARRIER resourceBarrier{ };
-		resourceBarrier.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
-		resourceBarrier.Flags = D3D12_RESOURCE_BARRIER_FLAG_NONE;
-		resourceBarrier.Transition.pResource = m_renderTargets[m_frameIndex].Get();
-		resourceBarrier.Transition.StateBefore = D3D12_RESOURCE_STATE_RENDER_TARGET;
-		resourceBarrier.Transition.StateAfter = D3D12_RESOURCE_STATE_PRESENT;
-		resourceBarrier.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
+	m_commandList->ResourceBarrier(1, &CD3DX12_RESOURCE_BARRIER::Transition(m_renderTargets[m_frameIndex].Get(), D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_PRESENT));
 
-		m_commandList->ResourceBarrier(1, &resourceBarrier);
-	}
-
-	// Finish populating commands
 	m_commandList->Close();
 }
 

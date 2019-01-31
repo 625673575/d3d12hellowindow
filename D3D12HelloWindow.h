@@ -226,11 +226,14 @@ private:
 	ComPtr<ID3D12CommandAllocator> m_commandAllocators[FrameCount];
     ComPtr<ID3D12CommandQueue> m_commandQueue;//CommandQueue 和 CommandList只需要一个就行了
     ComPtr<ID3D12GraphicsCommandList> m_commandList;
+	ComPtr<ID3D12CommandAllocator> m_bundleAllocator;
+	ComPtr<ID3D12GraphicsCommandList> m_bundleInit;
+	ComPtr<ID3D12GraphicsCommandList> m_bundleDrawer[2];
     ComPtr<ID3D12DescriptorHeap> m_rtvDescriptorHeap;//rendertarget的存储heap
     UINT m_rtvDescriptorSize;//单个Descriptor的大小，用于获取Handle偏移地址的时候使用
     ComPtr<ID3D12PipelineState> m_pipelineState;//渲染的管线状态
 
-	ComPtr<ID3D12DescriptorHeap> m_leftCbvSrvHeap;//ShaderResourceView和ConstantBufferView的存储heap
+	ComPtr<ID3D12DescriptorHeap> m_cbvSrvHeap;//ShaderResourceView和ConstantBufferView的存储heap
 	
 	UINT m_cbvSrvDescriptorSize;//单个Descriptor的大小，用于获取Handle偏移地址的时候使用
 
